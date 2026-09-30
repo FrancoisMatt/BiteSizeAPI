@@ -2,9 +2,12 @@ package com.example.bitesizeapi.controller;
 
 import com.example.bitesizeapi.model.User;
 import com.example.bitesizeapi.repository.UserRepository;
+import com.example.bitesizeapi.model.LoginRequest;
+import com.example.bitesizeapi.model.ResetPasswordRequest;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 
 import java.util.List;
 import java.util.Optional;
@@ -176,5 +179,73 @@ public class UserController {
         return ResponseEntity
                 .noContent()
                 .build();
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(
+            @RequestBody LoginRequest loginRequest) {
+
+        Optional<User> userOptional =
+                userRepository.findByEmail(
+                        loginRequest.getEmail()
+                );
+
+        if (userOptional.isEmpty()) {
+
+            return ResponseEntity
+                    .status(401)
+                    .body("Invalid email or password");
+        }
+
+
+        User user = userOptional.get();
+
+
+        if (!user.getPasswordHash().equals(
+                loginRequest.getPassword())) {
+
+            return ResponseEntity
+                    .status(401)
+                    .body("Invalid email or password");
+        }
+
+
+        return ResponseEntity.ok(user);
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(
+            @RequestBody ResetPasswordRequest request) {
+
+        Optional<User> userOptional =
+                userRepository.findByEmail(
+                        request.getEmail()
+                );
+
+
+        if (userOptional.isEmpty()) {
+
+            return ResponseEntity
+                    .status(404)
+                    .body("User not found");
+        }
+
+
+        User user =
+                userOptional.get();
+
+
+        user.setPasswordHash(
+                request.getNewPassword()
+        );
+
+
+        User updatedUser =
+                userRepository.save(user);
+
+
+        return ResponseEntity.ok(
+                updatedUser
+        );
     }
 }
