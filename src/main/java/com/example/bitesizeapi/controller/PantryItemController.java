@@ -1,17 +1,21 @@
 package com.example.bitesizeapi.controller;
 
 import com.example.bitesizeapi.dto.PantryItemResponse;
+import com.example.bitesizeapi.model.AuditLog;
 import com.example.bitesizeapi.model.Ingredient;
 import com.example.bitesizeapi.model.PantryItem;
+import com.example.bitesizeapi.repository.AuditLogRepository;
 import com.example.bitesizeapi.repository.IngredientRepository;
 import com.example.bitesizeapi.repository.PantryItemRepository;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+
 
 @RestController
 @RequestMapping("/api/pantry")
@@ -20,15 +24,26 @@ public class PantryItemController {
 
     private final PantryItemRepository pantryItemRepository;
     private final IngredientRepository ingredientRepository;
+    private final AuditLogRepository auditLogRepository;
 
 
-    // Constructor
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
+
     public PantryItemController(
             PantryItemRepository pantryItemRepository,
-            IngredientRepository ingredientRepository) {
+            IngredientRepository ingredientRepository,
+            AuditLogRepository auditLogRepository) {
 
-        this.pantryItemRepository = pantryItemRepository;
-        this.ingredientRepository = ingredientRepository;
+        this.pantryItemRepository =
+                pantryItemRepository;
+
+        this.ingredientRepository =
+                ingredientRepository;
+
+        this.auditLogRepository =
+                auditLogRepository;
     }
 
 
@@ -45,7 +60,6 @@ public class PantryItemController {
 
     // =====================================================
     // GET PANTRY ITEMS FOR USER
-    // Includes Ingredient Name
     // =====================================================
 
     @GetMapping("/user/{userId}")
@@ -102,6 +116,7 @@ public class PantryItemController {
         Optional<PantryItem> pantryItem =
                 pantryItemRepository.findById(id);
 
+
         if (pantryItem.isEmpty()) {
 
             return ResponseEntity
@@ -117,30 +132,344 @@ public class PantryItemController {
 
 
     // =====================================================
-    // CREATE
+    // CREATE PANTRY ITEM
     // =====================================================
 
     @PostMapping
-    public PantryItem createPantryItem(
+    public ResponseEntity<?> createPantryItem(
             @RequestBody PantryItem pantryItem) {
 
-        // Database generates the ID
+
+        // =================================================
+        // VALIDATE USER
+        // =================================================
+
+        if (pantryItem.getUserId() == null) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("User is required.");
+        }
+
+
+        // =================================================
+        // VALIDATE INGREDIENT
+        // =================================================
+
+        if (pantryItem.getIngredientId() == null) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("Ingredient is required.");
+        }
+
+
+        if (!ingredientRepository.existsById(
+                pantryItem.getIngredientId())) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Selected ingredient does not exist."
+                    );
+        }
+
+
+        // =================================================
+        // VALIDATE QUANTITY
+        // =================================================
+
+        if (pantryItem.getQuantity() == null ||
+                pantryItem.getQuantity().signum() <= 0) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Quantity must be greater than 0."
+                    );
+        }
+
+
+        // =================================================
+        // VALIDATE UNIT
+        // =================================================
+
+        if (pantryItem.getUnit() == null ||
+                pantryItem.getUnit().trim().isEmpty()) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("Unit is required.");
+        }
+
+
+        pantryItem.setUnit(
+                pantryItem.getUnit().trim()
+        );
+
+
+        // =================================================
+        // PREVENT DUPLICATE INGREDIENT
+        // =================================================
+
+        boolean ingredientAlreadyExists =
+                pantryItemRepository
+                        .existsByUserIdAndIngredientId(
+                                pantryItem.getUserId(),
+                                pantryItem.getIngredientId()
+                        );
+
+
+        if (ingredientAlreadyExists) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "This ingredient is already in your pantry. " +
+                                    "Please edit the existing item instead."
+                    );
+        }
+
+
+        // =================================================
+        // CREATE PANTRY ITEM
+        // =================================================
+
         pantryItem.setPantryItemId(null);
 
-        return pantryItemRepository.save(
-                pantryItem
+
+        PantryItem saved =
+                pantryItemRepository.save(
+                        pantryItem
+                );
+
+
+        // =================================================
+        // GET INGREDIENT NAME FOR AUDIT
+        // =================================================
+
+        String ingredientName =
+                ingredientRepository
+                        .findById(
+                                saved.getIngredientId()
+                        )
+                        .map(Ingredient::getName)
+                        .orElse("Unknown");
+
+
+        // =================================================
+        // AUDIT CREATE
+        // =================================================
+
+        createAuditLog(
+                saved.getUserId(),
+                "CREATE",
+                saved.getPantryItemId(),
+                "Added " + ingredientName + " to pantry"
+        );
+
+
+        return ResponseEntity.ok(
+                saved
         );
     }
 
 
     // =====================================================
-    // UPDATE
+    // UPDATE PANTRY ITEM
     // =====================================================
 
     @PutMapping("/{id}")
-    public ResponseEntity<PantryItem> updatePantryItem(
+    public ResponseEntity<?> updatePantryItem(
             @PathVariable Integer id,
             @RequestBody PantryItem updatedItem) {
+
+
+        // =================================================
+        // CHECK RECORD EXISTS
+        // =================================================
+
+        Optional<PantryItem> existing =
+                pantryItemRepository.findById(id);
+
+
+        if (existing.isEmpty()) {
+
+            return ResponseEntity
+                    .notFound()
+                    .build();
+        }
+
+
+        // =================================================
+        // VALIDATE USER
+        // =================================================
+
+        if (updatedItem.getUserId() == null) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("User is required.");
+        }
+
+
+        // =================================================
+        // VALIDATE INGREDIENT
+        // =================================================
+
+        if (updatedItem.getIngredientId() == null) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("Ingredient is required.");
+        }
+
+
+        if (!ingredientRepository.existsById(
+                updatedItem.getIngredientId())) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Selected ingredient does not exist."
+                    );
+        }
+
+
+        // =================================================
+        // VALIDATE QUANTITY
+        // =================================================
+
+        if (updatedItem.getQuantity() == null ||
+                updatedItem.getQuantity().signum() <= 0) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "Quantity must be greater than 0."
+                    );
+        }
+
+
+        // =================================================
+        // VALIDATE UNIT
+        // =================================================
+
+        if (updatedItem.getUnit() == null ||
+                updatedItem.getUnit().trim().isEmpty()) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body("Unit is required.");
+        }
+
+
+        // =================================================
+        // PREVENT DUPLICATES DURING UPDATE
+        // =================================================
+
+        boolean duplicateIngredient =
+                pantryItemRepository
+                        .existsByUserIdAndIngredientIdAndPantryItemIdNot(
+                                updatedItem.getUserId(),
+                                updatedItem.getIngredientId(),
+                                id
+                        );
+
+
+        if (duplicateIngredient) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            "This ingredient is already in your pantry. " +
+                                    "Please edit the existing item instead."
+                    );
+        }
+
+
+        // =================================================
+        // UPDATE PANTRY ITEM
+        // =================================================
+
+        PantryItem pantryItem =
+                existing.get();
+
+
+        pantryItem.setUserId(
+                updatedItem.getUserId()
+        );
+
+
+        pantryItem.setIngredientId(
+                updatedItem.getIngredientId()
+        );
+
+
+        pantryItem.setQuantity(
+                updatedItem.getQuantity()
+        );
+
+
+        pantryItem.setUnit(
+                updatedItem.getUnit().trim()
+        );
+
+
+        pantryItem.setExpiryDate(
+                updatedItem.getExpiryDate()
+        );
+
+
+        PantryItem saved =
+                pantryItemRepository.save(
+                        pantryItem
+                );
+
+
+        // =================================================
+        // GET INGREDIENT NAME FOR AUDIT
+        // =================================================
+
+        String ingredientName =
+                ingredientRepository
+                        .findById(
+                                saved.getIngredientId()
+                        )
+                        .map(Ingredient::getName)
+                        .orElse("Unknown");
+
+
+        // =================================================
+        // AUDIT UPDATE
+        // =================================================
+
+        createAuditLog(
+                saved.getUserId(),
+                "UPDATE",
+                saved.getPantryItemId(),
+                "Updated " + ingredientName + " in pantry"
+        );
+
+
+        return ResponseEntity.ok(
+                saved
+        );
+    }
+
+
+    // =====================================================
+    // DELETE PANTRY ITEM
+    // =====================================================
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deletePantryItem(
+            @PathVariable Integer id) {
+
+
+        // =================================================
+        // GET ITEM BEFORE DELETE
+        // =================================================
 
         Optional<PantryItem> existing =
                 pantryItemRepository.findById(id);
@@ -158,58 +487,97 @@ public class PantryItemController {
                 existing.get();
 
 
-        pantryItem.setUserId(
-                updatedItem.getUserId()
-        );
+        // Save these before deleting
+        Integer userId =
+                pantryItem.getUserId();
 
-        pantryItem.setIngredientId(
-                updatedItem.getIngredientId()
-        );
-
-        pantryItem.setQuantity(
-                updatedItem.getQuantity()
-        );
-
-        pantryItem.setUnit(
-                updatedItem.getUnit()
-        );
-
-        pantryItem.setExpiryDate(
-                updatedItem.getExpiryDate()
-        );
+        Integer ingredientId =
+                pantryItem.getIngredientId();
 
 
-        PantryItem saved =
-                pantryItemRepository.save(
-                        pantryItem
-                );
+        // =================================================
+        // GET INGREDIENT NAME
+        // =================================================
+
+        String ingredientName =
+                ingredientRepository
+                        .findById(ingredientId)
+                        .map(Ingredient::getName)
+                        .orElse("Unknown");
 
 
-        return ResponseEntity.ok(saved);
-    }
-
-
-    // =====================================================
-    // DELETE
-    // =====================================================
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deletePantryItem(
-            @PathVariable Integer id) {
-
-        if (!pantryItemRepository.existsById(id)) {
-
-            return ResponseEntity
-                    .notFound()
-                    .build();
-        }
-
+        // =================================================
+        // DELETE
+        // =================================================
 
         pantryItemRepository.deleteById(id);
+
+
+        // =================================================
+        // AUDIT DELETE
+        // =================================================
+
+        createAuditLog(
+                userId,
+                "DELETE",
+                id,
+                "Deleted " + ingredientName + " from pantry"
+        );
 
 
         return ResponseEntity
                 .noContent()
                 .build();
+    }
+
+
+    // =====================================================
+    // CREATE AUDIT LOG
+    // =====================================================
+
+    private void createAuditLog(
+            Integer userId,
+            String action,
+            Integer recordId,
+            String description) {
+
+
+        AuditLog auditLog =
+                new AuditLog();
+
+
+        auditLog.setUserId(
+                userId
+        );
+
+
+        auditLog.setAction(
+                action
+        );
+
+
+        auditLog.setTableName(
+                "PantryItems"
+        );
+
+
+        auditLog.setRecordId(
+                recordId
+        );
+
+
+        auditLog.setDescription(
+                description
+        );
+
+
+        auditLog.setCreatedAt(
+                LocalDateTime.now()
+        );
+
+
+        auditLogRepository.save(
+                auditLog
+        );
     }
 }
