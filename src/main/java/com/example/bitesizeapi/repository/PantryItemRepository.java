@@ -11,6 +11,21 @@ import java.util.List;
 public interface PantryItemRepository
         extends JpaRepository<PantryItem, Integer> {
 
-    // Get pantry items belonging to a specific user
+    // Get all pantry items belonging to a user
     List<PantryItem> findByUserId(Integer userId);
+
+
+    // Check whether a user already has an ingredient
+    boolean existsByUserIdAndIngredientId(
+            Integer userId,
+            Integer ingredientId
+    );
+
+
+    // Check whether another pantry item already contains
+    boolean existsByUserIdAndIngredientIdAndPantryItemIdNot(
+            Integer userId,
+            Integer ingredientId,
+            Integer pantryItemId
+    );
 }
